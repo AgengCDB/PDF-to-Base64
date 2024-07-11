@@ -1,8 +1,8 @@
-.ipynb
-.pdf
-.xlsx
-.xlsb
-.ico
+*.ipynb
+*.pdf
+*.xlsx
+*.xlsb
+*.ico
 
 input/
 
