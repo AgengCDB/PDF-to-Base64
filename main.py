@@ -1,11 +1,12 @@
 import sys
 import base64
 import os
+import time
 os.system("title PDF to Base64 Text File")
 
 import random
-from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QPushButton, QTextEdit, QAction
-from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QLabel, QVBoxLayout, QPushButton, QTextEdit, QAction, QMessageBox
+from PyQt5.QtCore import Qt, QUrl, QThread, pyqtSignal, QObject
 from PyQt5.QtGui import QIcon, QPixmap, QImage
 # from PyQt5.QtCore import QDesktopServices
 
@@ -53,20 +54,32 @@ def pdf_to_blob(file_paths):
     
     return output_file_paths
 
-class ConsoleWidget(QTextEdit):
-    def __init__(self):
-        super().__init__()
-        self.setReadOnly(True)
+class StreamHandler(QObject):
+    newText = pyqtSignal(str)
 
-    def write(self, text):
-        self.moveCursor(self.textCursor().End)
-        self.insertPlainText(text)
+    def write(self, message):
+        self.newText.emit(str(message))
+
+    def flush(self):
+        pass
+
+class QTextEditHandler:
+    def __init__(self, text_edit):
+        self.text_edit = text_edit
+
+    def write(self, message):
+        self.text_edit.moveCursor(self.text_edit.textCursor().End)
+        self.text_edit.insertPlainText(message)
+        self.text_edit.ensureCursorVisible()
+
+    def flush(self):
+        pass  # This can be left empty
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF to Base64 Text File")
-        self.setGeometry(100, 100, 600, 800)  # Set window size
+        self.setGeometry(100, 100, 600, 300)  # Set window size
 
         # Set window icon (optional)
         # Set application icon from base64 data
@@ -84,7 +97,7 @@ class MainWindow(QMainWindow):
 
         # Title label
         self.title_label = QLabel("PDF to Base64 Text File")
-        self.title_label.setStyleSheet(f"font-size: 28px; font-weight: bold; color: #333333; background-color: {random_color}; padding: 10px;")
+        self.title_label.setStyleSheet(f"font-size: 28px; font-weight: bold; color: #000000; background-color: {random_color}; padding: 10px;")
         self.central_layout.addWidget(self.title_label, alignment=Qt.AlignCenter)
 
         # Instruction label
@@ -121,13 +134,15 @@ class MainWindow(QMainWindow):
         self.label2.setContentsMargins(0, 20, 0, 0)
         self.central_layout.addWidget(self.label2, alignment=Qt.AlignCenter)
         
-        # Console widget to display output
-        self.console_widget = ConsoleWidget()
-        self.central_layout.addWidget(self.console_widget)
+        # Add QTextEdit widget which already has built-in scrolling
+        self.text_edit = QTextEdit()
+        self.central_layout.addWidget(self.text_edit)
 
         # Redirect stdout and stderr
-        sys.stdout = self.console_widget
-        sys.stderr = self.console_widget
+        self.stream_handler = StreamHandler()
+        self.stream_handler.newText.connect(self.on_new_text)
+        sys.stdout = self.stream_handler
+        sys.stderr = self.stream_handler
 
         # Enable drag and drop functionality
         self.setAcceptDrops(True)
@@ -137,6 +152,11 @@ class MainWindow(QMainWindow):
         self.result_files = []
         
         # self.center_on_screen()
+    
+    def on_new_text(self, text):
+        self.text_edit.moveCursor(self.text_edit.textCursor().End)
+        self.text_edit.insertPlainText(text)
+        self.text_edit.ensureCursorVisible()
         
     def center_on_screen(self):
         # Function to center the window on the screen
@@ -145,21 +165,23 @@ class MainWindow(QMainWindow):
         center_point = QApplication.desktop().screenGeometry(screen).center()
         frame_geometry.moveCenter(center_point)
         self.move(frame_geometry.topLeft())
-
-    def start_process_files(self):
-        Thread(target=self.process_files).start()
+    
+    def worker_finished(self):
+        QMessageBox.information(self, "Operation Complete", "The operation has finished successfully.")
 
     def process_files(self):
-        # Dummy function to handle processing of files
-        # Replace with your actual processing logic
-        if self.dropped_files:
-            print("Processing files...")
-            # print("Files:", dropped_files)
-            
-            self.result_files = pdf_to_blob(self.dropped_files)
-        else:
-            print("There's no file to process")
-            self.file_paths_label.setText("Drop the file(s) first!")
+        self.worker = WorkerThread(self.dropped_files)
+        self.worker.start()
+        # self.worker.finished.connect(self.worker_finished)
+        self.worker.update_result_files.connect(self.result_files_update)
+        self.worker.update_file_paths_label.connect(self.file_paths_label_update)
+    
+    def result_files_update(self, x):
+        self.result_files = x
+    
+    def file_paths_label_update(self, x):
+        self.label2 = x
+        pass
     
     def open_result_file(self):
         if self.result_files:
@@ -189,6 +211,23 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event):
         self.dropped_files = [url.toLocalFile() for url in event.mimeData().urls()]
         self.file_paths_label.setText("\n".join(self.dropped_files))
+
+class WorkerThread(QThread):
+    update_result_files = pyqtSignal(list)
+    update_file_paths_label = pyqtSignal(str)
+    
+    def __init__(self, dropped_files):
+        super().__init__()
+        self.dropped_files = dropped_files
+    
+    def run(self):
+        if self.dropped_files:
+            print("Processing files...")
+            self.update_result_files.emit(pdf_to_blob(self.dropped_files))
+            # self.result_files = pdf_to_blob(self.dropped_files)
+        else:
+            print("There's no file to process")
+            self.update_file_paths_label.emit("Drop the file(s) first!")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
