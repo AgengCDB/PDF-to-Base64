@@ -79,7 +79,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PDF to Base64 Text File")
-        self.setGeometry(100, 100, 600, 300)  # Set window size
+        self.setGeometry(100, 100, 400, 600)  # Set window size
 
         # Set window icon (optional)
         # Set application icon from base64 data
